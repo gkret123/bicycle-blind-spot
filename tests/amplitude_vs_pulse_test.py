@@ -19,9 +19,7 @@ import busio
 import adafruit_drv2605
 
 
-# -----------------------------
-# Config you’ll likely tweak
-# -----------------------------
+
 MOTOR_TYPE = "ERM"          # "ERM" (default) or "LRA" (uses drv.use_LRM())
 TTR_START = 10.0            # seconds: starts "safe", ramps down to 0
 
@@ -51,18 +49,14 @@ def clamp(x, lo, hi):
 
 
 def ttr_to_scalar(ttr_seconds: float) -> float:
-    """Inverted & scaled factor: TTR down => scalar up (0..1)."""
+    #Inverted & scaled factor: TTR down => scalar up (0..1)
     if TTR_START <= 0:
         return 1.0
     return clamp(1.0 - (ttr_seconds / TTR_START), 0.0, 1.0)
 
 
 def curve(s: float) -> float:
-    """
-    Optional "perceptual" curve:
-      - s**2 makes early changes gentler, late changes stronger
-      - try s**1.0 (linear), s**3.0 (more aggressive), etc.
-    """
+    #try s**1.0 (linear), s**3.0 (more aggressive), etc.
     return s * s
 
 

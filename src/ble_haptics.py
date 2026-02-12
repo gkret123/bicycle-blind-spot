@@ -11,6 +11,8 @@ Packet layout (4 bytes):
     b3: side id (0=both/center, 1=left, 2=right)
 """
 
+#use: python radar_test.py --cfg COM4 --data COM5
+
 from __future__ import annotations
 
 import asyncio

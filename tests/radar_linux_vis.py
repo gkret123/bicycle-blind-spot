@@ -85,7 +85,7 @@ def clusters_by_grid(pts, cell=0.6, min_pts=3):
         out.append((center, clu))
     return out
 
-def main(cfg="COM4", data="COM5"):
+def main(cfg="/dev/ttyUSB0", data="/dev/ttyUSB1"):
     configure_sensor(cfg)
 
     plt.ion()
@@ -205,7 +205,7 @@ def main(cfg="COM4", data="COM5"):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cfg", default="COM4")
-    ap.add_argument("--data", default="COM5")
+    ap.add_argument("--cfg", default="/dev/ttyUSB0")
+    ap.add_argument("--data", default="/dev/ttyUSB1")
     a = ap.parse_args()
     main(a.cfg, a.data)

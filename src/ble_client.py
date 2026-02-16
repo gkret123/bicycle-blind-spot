@@ -22,7 +22,7 @@ from typing import Callable, Awaitable, Optional
 
 from bleak import BleakClient, BleakScanner
 
-from .constants import BleTarget  # (you renamed ble_config.py back to constants.py)
+from .constants import BleTarget
 from .math_utils import ttr_to_byte
 
 

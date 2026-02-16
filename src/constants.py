@@ -1,18 +1,35 @@
-# src/ble_config.py
-from __future__ import annotations
+# src/constants.py
+"""
+BLE configuration and constants.
+
+DATA ONLY
+"""
+
 from dataclasses import dataclass
 
-# GATT UUIDs (match ESP32 firmware)
+# -------------------------------------------------------------------
+# GATT UUIDs
+# These MUST match what is defined in the ESP32 firmware.
+# -------------------------------------------------------------------
+
 SERVICE_UUID = "12345678-1234-1234-1234-1234567890ab"
-RX_UUID      = "12345678-1234-1234-1234-1234567890ac"
-TX_UUID      = "12345678-1234-1234-1234-1234567890ad"
+RX_UUID      = "12345678-1234-1234-1234-1234567890ac"  # we WRITE TTR here
+TX_UUID      = "12345678-1234-1234-1234-1234567890ad"  # ESP32 NOTIFIES here
 
-# Defaults
-DEFAULT_DEVICE_NAMES = ["BBSpot-XIAO"]
 
-# Scaling constants (data only)
+# -------------------------------------------------------------------
+# TTR scaling constants
+# These define how we convert a 0..1 float to a byte.
+# -------------------------------------------------------------------
+
 TTR_BYTE_MIN = 0
 TTR_BYTE_MAX = 255
+
+
+# -------------------------------------------------------------------
+# Simple immutable container describing one BLE receiver target.
+# Will create multiple of these (left/right motors later).
+# -------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class BleTarget:

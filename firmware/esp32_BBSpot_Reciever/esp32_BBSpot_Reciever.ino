@@ -44,9 +44,9 @@ const float SILENT_TTR          = 0.98f; // very large TTR => idle/silent
 const uint32_t TTR_TIMEOUT_MS = 500;
 
 // Idle heartbeat while waiting for connection (tiny pulse every 30s)
-const uint32_t IDLE_PULSE_PERIOD_MS = 30000;
-const uint16_t IDLE_PULSE_ON_MS     = 60;
-const uint8_t  IDLE_PULSE_AMP       = 40;
+const uint32_t IDLE_PULSE_PERIOD_MS = 15000;
+const uint16_t IDLE_PULSE_ON_MS     = 100;
+const uint8_t  IDLE_PULSE_AMP       = 100;
 
 // =====================
 // BLE globals

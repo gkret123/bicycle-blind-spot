@@ -2,11 +2,11 @@
 import argparse
 import asyncio
 
-from src.ttr_source import TTRRamp
-from src.constants import BleTarget  # your constants.py
-from src.ble_client import BleAutoReconnectClient, ReconnectPolicy
-from src.ttr_streamer import TTRStreamer, StreamConfig
-from src.metrics import StreamMetrics
+from bicycle_blind_spot.ttr_source import TTRRamp
+from bicycle_blind_spot.constants import BleTarget
+from bicycle_blind_spot.ble_client import BleAutoReconnectClient, ReconnectPolicy
+from bicycle_blind_spot.ttr_streamer import TTRStreamer, StreamConfig
+from bicycle_blind_spot.metrics import StreamMetrics
 
 
 async def run(args):

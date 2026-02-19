@@ -1,4 +1,3 @@
-# src/math_utils.py
 """
 Math and scaling utilities.
 

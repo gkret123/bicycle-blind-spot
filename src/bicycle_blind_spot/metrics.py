@@ -1,4 +1,3 @@
-# src/metrics.py
 """
 Streaming metrics / logging.
 

@@ -1,4 +1,3 @@
-# src/ttr_streamer.py
 """
 TTR Streamer.
 

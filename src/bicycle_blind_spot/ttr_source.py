@@ -1,4 +1,3 @@
-# src/ttr_source.py
 """
 TTR Source Module.
 

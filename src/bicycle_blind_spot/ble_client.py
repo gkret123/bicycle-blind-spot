@@ -1,4 +1,3 @@
-# src/ble_client.py
 """
 BLE Auto-Reconnect Client.
 
@@ -11,7 +10,7 @@ Responsibilities:
 - Subscribe to TX notifications (and keep it enabled across reconnects)
 
 This module intentionally does NOT print metrics.
-use src/metrics.py and src/ttr_streamer.py for logging.
+use metrics.py and ttr_streamer.py for logging.
 """
 
 from __future__ import annotations

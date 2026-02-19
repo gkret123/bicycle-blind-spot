@@ -1,4 +1,3 @@
-# src/constants.py
 """
 BLE configuration and constants.
 

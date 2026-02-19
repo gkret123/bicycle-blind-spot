@@ -45,6 +45,6 @@ class StreamMetrics:
         reconn = " ".join([f"{k}={v}" for k, v in self.reconnects.items()]) or "-"
 
         print(
-            f"t={elapsed:6.1f}s  ttr={ttr:0.3f}  b={byte:3d}  "
+            f"t={elapsed:6.1f}s  ttr={ttr:0.3f}  bytes={byte:3d}  "
             f"send_hz={hz:0.1f}  devs=[{devs}]  reconn=[{reconn}]"
         )

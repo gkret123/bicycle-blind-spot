@@ -1,4 +1,5 @@
-# src/ble_client.py
+# src/bicycle_blind_spot/ble/ble_client.py
+
 """
 BLE Auto-Reconnect Client.
 
@@ -22,8 +23,8 @@ from typing import Callable, Awaitable, Optional
 
 from bleak import BleakClient, BleakScanner
 
-from .constants import BleTarget
-from .math_utils import ttr_to_byte
+from bicycle_blind_spot.utils.constants import BleTarget
+from bicycle_blind_spot.utils.math_utils import ttr_to_byte
 
 
 NotifyHandler = Callable[[bytes], None] | Callable[[bytes], Awaitable[None]]

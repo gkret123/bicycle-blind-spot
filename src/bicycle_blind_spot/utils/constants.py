@@ -1,4 +1,4 @@
-# src/constants.py
+# src/bicycle_blind_spot/utils/constants.py
 """
 BLE configuration and constants.
 

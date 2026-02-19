@@ -1,4 +1,4 @@
-# src/ttr_source.py
+# src/bicycle_blind_spot/radar/ttr_source.py
 """
 TTR Source Module.
 
@@ -9,7 +9,7 @@ TODO: Replace the internals of this class with real TTR calculation from range a
 
 import time
 from dataclasses import dataclass
-from .math_utils import clamp01
+from bicycle_blind_spot.utils.math_utils import clamp01
 
 
 @dataclass

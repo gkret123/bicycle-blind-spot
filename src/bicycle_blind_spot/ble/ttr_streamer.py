@@ -1,4 +1,4 @@
-# src/ttr_streamer.py
+# src/bicycle_blind_spot/ble/ttr_streamer.py
 """
 TTR Streamer.
 
@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from typing import Sequence, Optional, Dict
 
 from .ble_client import BleAutoReconnectClient
-from .metrics import StreamMetrics
-from .math_utils import ttr_to_byte
+from bicycle_blind_spot.utils.metrics import StreamMetrics
+from bicycle_blind_spot.utils.math_utils import ttr_to_byte
 
 
 @dataclass

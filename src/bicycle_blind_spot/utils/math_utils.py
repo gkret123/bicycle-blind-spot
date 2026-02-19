@@ -1,4 +1,5 @@
-# src/math_utils.py
+# src/bicycle_blind_spot/utils/math_utils.py
+
 """
 Math and scaling utilities.
 

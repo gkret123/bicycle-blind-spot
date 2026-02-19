@@ -9,5 +9,6 @@ description = "Bicycle Blind Spot System"
 authors = [{name="Gabriel Kret"}]
 requires-python = ">=3.11"
 
-[tool.setuptools]
-packages = ["src"]
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["Review*", "tests*"]

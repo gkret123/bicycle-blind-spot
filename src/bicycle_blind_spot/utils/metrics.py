@@ -1,4 +1,5 @@
-# src/metrics.py
+# src/bicycle_blind_spot/utils/metrics.py
+
 """
 Streaming metrics / logging.
 

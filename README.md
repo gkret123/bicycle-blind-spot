@@ -19,11 +19,12 @@ Python tooling for a bicycle blind-spot prototype that streams a normalized **TT
 ## Install
 
 (Optional) Install system dependencies first (Debian/Ubuntu/Raspberry Pi OS):
-
 ```bash
 sudo apt update
 sudo xargs -a apt-requirements.txt apt install -y
 ```
+> **Disclaimer:** `apt-requirements.txt` was generated from a development machine using `apt-mark showmanual`. Package availability and exact names may vary across Debian/Ubuntu/Raspberry Pi OS versions, so you may need to adjust the list for your specific system.
+
 
 Then set up the Python environment:
 ```bash

@@ -18,6 +18,14 @@ Python tooling for a bicycle blind-spot prototype that streams a normalized **TT
 
 ## Install
 
+(Optional) Install system dependencies first (Debian/Ubuntu/Raspberry Pi OS):
+
+```bash
+sudo apt update
+sudo xargs -a apt-requirements.txt apt install -y
+```
+
+Then set up the Python environment:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -26,7 +34,6 @@ pip install -e .
 ```
 
 If you need all pinned dependencies used during development, you can also install:
-
 ```bash
 pip install -r requirements.txt
 ```

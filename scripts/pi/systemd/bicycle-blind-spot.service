@@ -1,0 +1,17 @@
+[Unit]
+Description=Bicycle Blind Spot BLE streamer
+After=network-online.target bluetooth.target
+Wants=network-online.target bluetooth.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=__REPO_DIR__
+ExecStart=__REPO_DIR__/scripts/pi/run_bbs.sh
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

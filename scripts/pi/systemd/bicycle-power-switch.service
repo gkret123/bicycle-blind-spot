@@ -1,0 +1,15 @@
+[Unit]
+Description=GPIO power switch monitor for graceful shutdown
+After=multi-user.target
+Wants=bicycle-blind-spot.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=__REPO_DIR__
+ExecStart=__REPO_DIR__/.venv/bin/python -m bicycle_blind_spot.pi.power_switch_shutdown --pin 17 --active-state low
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

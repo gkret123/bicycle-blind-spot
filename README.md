@@ -59,6 +59,76 @@ Example with two targets:
 ```bash
 python scripts/ble_send_ttr.py --device-names "BBSpot-XIAO-L,BBSpot-XIAO-R" --hz 25 --notify
 ```
+## Raspberry Pi auto-start + graceful shutdown switch
+
+This repository includes helper scripts for running the software at boot and shutting down cleanly when a physical switch is toggled OFF.
+
+### Files
+
+- `scripts/pi/run_bbs.sh`: wrapper that launches `scripts/ble_send_ttr.py` from `.venv`.
+- `scripts/pi/power_switch_shutdown.py`: watches a GPIO pin and, when triggered, stops the main service then calls `shutdown -h now`.
+- `scripts/pi/install_autostart.sh`: installs and enables both systemd services.
+- `scripts/pi/systemd/bicycle-blind-spot.service`: boot service for the app.
+- `scripts/pi/systemd/bicycle-power-switch.service`: boot service for the GPIO shutdown monitor.
+
+### 1) Prepare your Pi environment
+
+From the repository root:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e .
+```
+
+Install Raspberry Pi GPIO support if needed:
+
+```bash
+sudo apt update
+sudo apt install -y python3-gpiozero
+```
+
+### 2) Install startup services
+
+```bash
+sudo scripts/pi/install_autostart.sh
+```
+
+This installs and enables:
+
+- `bicycle-blind-spot.service` (main app at boot)
+- `bicycle-power-switch.service` (GPIO switch monitor at boot)
+
+### 3) Configure the shutdown switch pin
+
+By default, the monitor uses BCM pin `17` and `--active-state low` (typical pull-up wiring where OFF pulls pin to GND).
+
+If your wiring differs, edit:
+
+- `scripts/pi/systemd/bicycle-power-switch.service`
+
+Then reload and restart:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart bicycle-power-switch.service
+```
+
+### 4) Verify
+
+```bash
+systemctl status bicycle-blind-spot.service
+systemctl status bicycle-power-switch.service
+journalctl -u bicycle-power-switch.service -f
+```
+
+When the OFF switch is triggered, the monitor will:
+
+1. `systemctl stop bicycle-blind-spot.service`
+2. `shutdown -h now`
+
+The app service uses `KillSignal=SIGINT` and a stop timeout so Python can run its disconnect logic before poweroff.
 
 ## Notes
 

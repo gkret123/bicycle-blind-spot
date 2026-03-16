@@ -42,7 +42,7 @@ CMDS = [
     "adcCfg 2 1",
     "adcbufCfg -1 0 1 1 1",
     "lowPower 0 0",
-    "profileCfg 0 77 7 3 39 0 0 100 1 256 7200 0 0 30",
+    "profileCfg 0 77 7 3 39 0 0 40 1 256 7200 0 0 30",
     "chirpCfg 0 0 0 0 0 0 0 1",
     "chirpCfg 1 1 0 0 0 0 0 4",
     "frameCfg 0 1 32 0 100 1 0",
@@ -494,6 +494,7 @@ def run_stream(
 
             tracker.predict()
 
+            
             clusters: List[Cluster] = []
             if pts_roi is not None and pts_roi.shape[0] > 0:
                 clusters = cluster_dbscan(pts_roi, eps_m=db_eps, min_samples=db_min_samples)

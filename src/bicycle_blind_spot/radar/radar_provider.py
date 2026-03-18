@@ -199,6 +199,8 @@ class Track:
     misses: int = 0
     last_vr: float = 0.0
     last_n: int = 0
+    range_m: float = 0.0
+    range_rate_mps: float = 0.0
 
 
 class _MultiTracker:
@@ -288,6 +290,11 @@ class _MultiTracker:
             t.misses = 0
             t.last_vr = c.v_r_med
             t.last_n = c.n
+            new_range = float(np.hypot(float(t.x[0]), float(t.x[1])))
+            prev_range = t.range_m or new_range
+            range_rate = max(0.0, (prev_range - new_range) / max(self.dt, 1e-3))
+            t.range_m = new_range
+            t.range_rate_mps = range_rate
 
         # Birth new tracks from unassociated clusters
         for j, c in enumerate(clusters):
@@ -295,9 +302,12 @@ class _MultiTracker:
                 continue
             x0 = np.array([c.cx, c.cy, 0.0, 0.0], dtype=np.float32)
             P0 = np.diag([1.5, 1.5, 25.0, 25.0]).astype(np.float32)
+            range0 = float(np.hypot(c.cx, c.cy))
             self.tracks.append(Track(
                 self.next_id, x0, P0, hits=1,
                 last_vr=c.v_r_med, last_n=c.n,
+                range_m = range0,
+                range_rate_mps = 0.0,
             ))
             self.next_id += 1
 
@@ -428,6 +438,8 @@ class RadarResult:
     angle_deg: float     # azimuth: negative=left, positive=right
     n_tracks: int        # number of confirmed tracks
     approaching: bool    # True if best threat is actively approaching
+    radial_mps: float    # raw signed radial velocity after sign correction (positive = approaching; 0 if no target)
+    range_rate_mps: float # range rate, positive when estimated range is decreasing; 0 if no target
 
 
 # ------------------------------------------------------------------ #
@@ -499,7 +511,7 @@ class RadarConfig:
 
     # Visualization (main-thread only via step_viz())
     show: bool = False
-
+    verbose: bool = False # print per-frame RADAR summaries
 
 PRINT_EVERY_SEC = 1.0
 
@@ -641,13 +653,15 @@ class RadarProvider:
                     pass
 
             # Throttled console print
-            if now - self._last_print >= PRINT_EVERY_SEC:
+            if self.cfg.verbose and now - self._last_print >= PRINT_EVERY_SEC:
                 self._last_print = now
                 r = result
                 if r.status != "NO_TARGET":
                     print(
                         f"[radar] range={r.range_m:5.1f}m "
                         f"close={r.closing_mps:+5.2f}m/s "
+                        f"vr={r.radial_mps:+5.2f}m/s "
+                        f"rr={r.range_rate_mps:+5.2f}m/s "
                         f"az={r.angle_deg:+5.1f}° "
                         f"tracks={r.n_tracks}"
                     )
@@ -727,12 +741,20 @@ class RadarProvider:
             return RadarResult(
                 status="NO_TARGET", range_m=0.0, closing_mps=0.0,
                 angle_deg=0.0, n_tracks=0, approaching=False,
+                radial_mps=0.0, range_rate_mps=0.0,
             )
 
         x, y = float(best.x[0]), float(best.x[1])
         range_m = float(np.hypot(x, y))
         angle_deg = float(np.degrees(np.arctan2(x, y)))
-        closing_raw = best.last_vr * self.cfg.approaching_sign
+        radial_mps = best.last_vr * self.cfg.approaching_sign
+        radial_closing = max(0.0, radial_mps)  # only count positive (approaching) radial velocity
+        if radial_closing > 0.0 and best.range_rate_mps > 0.0:
+            closing_raw = 0.65 * radial_closing + 0.35 * best.range_rate_mps # blend raw radial velocity with range rate for more stable closing speed estimate
+        else:
+            closing_raw = max(radial_closing, best.range_rate_mps)  # if not approaching, take the max of radial and range rate to avoid underestimating closing speed
+
+            
 
         return RadarResult(
             status="OK",
@@ -741,4 +763,6 @@ class RadarProvider:
             angle_deg=angle_deg,
             n_tracks=len(self._tracker.confirmed()),
             approaching=closing_raw > 0.3,
+            radial_mps=radial_mps,
+            range_rate_mps=best.range_rate_mps,
         )

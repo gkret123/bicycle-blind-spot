@@ -7,8 +7,9 @@ independent urgency components:
   1. **Proximity** — how close the vehicle is (range in meters).
      A shorter range means the vehicle is nearby.
   2. **Closing speed** — how fast the vehicle is approaching (m/s).
-     A high closing speed means rapid approach.
-
+     A high closing speed means rapid approach. This uses a fused estimate:
+     signed radar radial velocity plus geometric range-rate from the tracker.
+     
 IMPORTANT: Urgency is ONLY produced when the vehicle is actively approaching
 (closing_mps > min_approach_mps).  A vehicle at matched speed, stationary,
 or receding produces TTR = 1.0 (calm, no vibration).
@@ -75,7 +76,7 @@ class RadarTTRConfig:
 
     # ---- Visualization ----
     show: bool = False            # enable live top-down matplotlib plot
-
+    verbose: bool = False         # print per-frame radar summaries
 
 class RadarTTRSource:
     """
@@ -96,6 +97,7 @@ class RadarTTRSource:
             range_preset=self.cfg.range_preset,
             approaching_sign=self.cfg.approaching_sign,
             show=self.cfg.show,
+            verobose=self.cfg.verbose,
         )
         self.provider = RadarProvider(cfg=radar_cfg)
 

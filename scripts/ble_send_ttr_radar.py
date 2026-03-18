@@ -27,6 +27,7 @@ Usage:
 
 import argparse
 import asyncio
+import os
 import time
 
 from bicycle_blind_spot.ble.ble_client import BleAutoReconnectClient, ReconnectPolicy
@@ -90,6 +91,7 @@ async def run(args):
         both_zone_deg=args.both_zone,
         # Visualization
         show=args.show,
+        verbose=args.verbose_radar,
     )
     source = RadarTTRAdapter(RadarTTRSource(radar_cfg))
 
@@ -242,10 +244,16 @@ def parse_args():
     # Debug
     p.add_argument("--print-side-values", action="store_true")
 
+    p.add_argument("--verbose-radar", action="store_true",
+                   help="Print low-level radar summaries from RadarProvider")
     return p.parse_args()
 
 
 if __name__ == "__main__":
+    os.environ.setdefault(
+        "QT_LOGGING_RULES",
+        "qt.qpa.wayland=false;qt.qpa.window=false",
+    )
     try:
         asyncio.run(run(parse_args()))
     except KeyboardInterrupt:

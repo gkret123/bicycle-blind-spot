@@ -73,6 +73,9 @@ class RadarTTRConfig:
     range_preset: str = "long"
     approaching_sign: int = 1     # +1 or -1, calibrate on first test
 
+    # ---- Visualization ----
+    show: bool = False            # enable live top-down matplotlib plot
+
 
 class RadarTTRSource:
     """
@@ -92,6 +95,7 @@ class RadarTTRSource:
             data_port=self.cfg.data_port,
             range_preset=self.cfg.range_preset,
             approaching_sign=self.cfg.approaching_sign,
+            show=self.cfg.show,
         )
         self.provider = RadarProvider(cfg=radar_cfg)
 
@@ -237,6 +241,10 @@ class RadarTTRSource:
         """True when the best threat is actively approaching."""
         with self._lock:
             return self._approaching
+
+    def step_viz(self):
+        """Forward to RadarProvider.step_viz() — call from main thread when show=True."""
+        self.provider.step_viz()
 
     def stop(self):
         self._running = False

@@ -63,6 +63,10 @@ class RadarTTRAdapter:
     def approaching(self) -> bool:
         return self.radar.approaching
 
+    def step_viz(self):
+        """Forward matplotlib update — call from main thread only."""
+        self.radar.step_viz()
+
     def stop(self):
         self.radar.stop()
 
@@ -84,6 +88,8 @@ async def run(args):
         ttr_smooth_alpha=args.ttr_smooth,
         # Side selection
         both_zone_deg=args.both_zone,
+        # Visualization
+        show=args.show,
     )
     source = RadarTTRAdapter(RadarTTRSource(radar_cfg))
 
@@ -160,9 +166,21 @@ async def run(args):
           f"w_prox={args.w_proximity} w_close={args.w_closing} | "
           f"{args.hz}Hz")
 
+    async def _viz_loop():
+        """Drive matplotlib from the main (asyncio) thread at ~20 Hz."""
+        while True:
+            source.step_viz()
+            await asyncio.sleep(0.05)
+
+    tasks = [asyncio.create_task(streamer.start())]
+    if args.show:
+        tasks.append(asyncio.create_task(_viz_loop()))
+
     try:
-        await streamer.start()
+        await asyncio.gather(*tasks)
     finally:
+        for t in tasks:
+            t.cancel()
         await asyncio.gather(*(c.disconnect() for c in clients.values()))
         source.stop()
         print("Disconnected.")
@@ -216,6 +234,10 @@ def parse_args():
     # Side selection
     p.add_argument("--both-zone", type=float, default=10.0,
                    help="Angle zone (±degrees) where both sides vibrate (default: 10)")
+
+    # Visualization
+    p.add_argument("--show", action="store_true",
+                   help="Show live top-down radar scatter plot (requires display)")
 
     # Debug
     p.add_argument("--print-side-values", action="store_true")

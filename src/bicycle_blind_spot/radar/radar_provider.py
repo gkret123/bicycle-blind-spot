@@ -24,11 +24,12 @@ Usage:
 
 from __future__ import annotations
 
+import queue
 import struct
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 import serial
@@ -345,6 +346,76 @@ def _select_best(
 
 
 # ------------------------------------------------------------------ #
+# Live visualization (optional, main-thread only via step_viz())
+# ------------------------------------------------------------------ #
+
+class _LiveViz:
+    """
+    Top-down radar scatter plot (port of Radar_Tracker_Filter_Outdoor_v2.LiveViz).
+
+    IMPORTANT: all matplotlib calls happen in the MAIN thread via step_viz().
+    The background radar thread only enqueues data; it never calls matplotlib.
+    """
+
+    def __init__(self, xmax: float, ymin: float, ymax: float):
+        import matplotlib.pyplot as plt  # deferred — only imported when --show used
+        self._plt = plt
+        plt.ion()
+        self.fig, self.ax = plt.subplots()
+        self.ax.set_title("Radar Top-Down View (x lateral, y range)")
+        self.ax.set_xlabel("x  lateral (m)")
+        self.ax.set_ylabel("y  range (m)")
+        self.ax.set_xlim(-xmax, xmax)
+        self.ax.set_ylim(ymin, ymax)
+        self.ax.grid(True)
+        self.scat = self.ax.scatter([], [], s=12)
+        self.cluster_scat = self.ax.scatter([], [], s=90, marker="x", c="orange", zorder=3)
+        self.cbar = self.fig.colorbar(self.scat, ax=self.ax)
+        self.cbar.set_label("radial velocity v_r (m/s)")
+        self._track_texts: list = []
+
+    def update(
+        self,
+        pts: Optional[np.ndarray],
+        clusters: Optional[List[Cluster]] = None,
+        tracks: Optional[List[Tuple[int, float, float]]] = None,
+    ):
+        plt = self._plt
+
+        # Remove old track labels
+        for t in self._track_texts:
+            t.remove()
+        self._track_texts = []
+
+        if pts is None or pts.size == 0:
+            self.scat.set_offsets(np.zeros((0, 2)))
+            self.cluster_scat.set_offsets(np.zeros((0, 2)))
+            plt.pause(0.001)
+            return
+
+        x, y, v = pts[:, 0], pts[:, 1], pts[:, 3]
+        self.scat.set_offsets(np.c_[x, y])
+        self.scat.set_array(v)
+        vmax = max(1.0, min(float(np.nanmax(np.abs(v))) if v.size else 1.0, 20.0))
+        self.scat.set_clim(-vmax, vmax)
+
+        if clusters:
+            self.cluster_scat.set_offsets(np.c_[[c.cx for c in clusters],
+                                                [c.cy for c in clusters]])
+        else:
+            self.cluster_scat.set_offsets(np.zeros((0, 2)))
+
+        if tracks:
+            for tid, tx, ty in tracks:
+                self._track_texts.append(
+                    self.ax.text(tx, ty, str(tid), fontsize=10, color="red")
+                )
+
+        self.fig.canvas.draw_idle()
+        plt.pause(0.001)
+
+
+# ------------------------------------------------------------------ #
 # Result dataclass
 # ------------------------------------------------------------------ #
 
@@ -426,6 +497,9 @@ class RadarConfig:
     min_select_range: float = 1.5
     approaching_sign: int = 1             # +1 or -1, calibrate on first test
 
+    # Visualization (main-thread only via step_viz())
+    show: bool = False
+
 
 PRINT_EVERY_SEC = 1.0
 
@@ -453,6 +527,13 @@ class RadarProvider:
         self._buf = bytearray()
         self._t_last = time.time()
         self._last_print = 0.0
+
+        # Viz: created lazily in main thread by first call to step_viz()
+        self._viz: Optional[_LiveViz] = None
+        # Background thread enqueues (pts_roi, clusters, tracks); main thread drains
+        self._viz_q: Optional[queue.Queue] = (
+            queue.Queue(maxsize=2) if self.cfg.show else None
+        )
 
     def configure(self):
         """Send config commands to sensor CLI port."""
@@ -549,6 +630,16 @@ class RadarProvider:
 
             result = self._build_result(best)
 
+            # Enqueue viz data for the main thread (non-blocking; drops frame if full)
+            if self._viz_q is not None:
+                tracks_for_viz = [
+                    (t.tid, float(t.x[0]), float(t.x[1])) for t in conf
+                ]
+                try:
+                    self._viz_q.put_nowait((pts_roi, clusters, tracks_for_viz))
+                except queue.Full:
+                    pass
+
             # Throttled console print
             if now - self._last_print >= PRINT_EVERY_SEC:
                 self._last_print = now
@@ -568,6 +659,37 @@ class RadarProvider:
                     )
 
             return result
+
+    def step_viz(self):
+        """
+        Render the latest radar frame in the live plot.
+
+        MUST be called from the main thread (matplotlib requirement).
+        Call in a tight loop (~20 Hz) when --show is enabled.
+        No-op if show=False.
+        """
+        if self._viz_q is None:
+            return
+
+        # Create the plot window the first time (must be on main thread)
+        if self._viz is None:
+            self._viz = _LiveViz(
+                xmax=self.cfg.roi_xmax,
+                ymin=0.0,
+                ymax=self.cfg.roi_ymax,
+            )
+
+        # Drain and render the newest queued frame
+        frame = None
+        while True:
+            try:
+                frame = self._viz_q.get_nowait()
+            except queue.Empty:
+                break
+
+        if frame is not None:
+            pts_roi, clusters, tracks_for_viz = frame
+            self._viz.update(pts_roi, clusters=clusters, tracks=tracks_for_viz)
 
     def _parse_packet(self, pkt: bytes) -> Optional[np.ndarray]:
         """Extract ROI-filtered point cloud from a TLV packet."""

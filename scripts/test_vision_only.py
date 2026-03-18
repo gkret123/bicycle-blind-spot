@@ -7,7 +7,6 @@ Captures frames, runs YOLO, computes TTR and angle splits.
 import sys
 sys.path.insert(0, 'src')
 
-from bicycle_blind_spot.vision.camera_provider import CameraProvider
 from bicycle_blind_spot.vision.ttr_source_vision import VisionTTRSource, VisionTTRConfig
 import time
 
@@ -19,26 +18,25 @@ def main():
     # Create vision source
     print("\n[1/3] Initializing camera provider...")
     cfg = VisionTTRConfig(
-        headless=True,
-        visualize=False,
-        angle_boost=0.7,
+        show=False,
     )
     vision = VisionTTRSource(cfg)
+    vision.start()
     print("✓ Vision system initialized")
 
-    # Run for 10 frames
-    print("\n[2/3] Running vision loop (10 frames)...")
+    # Run for 20 samples, reading at ~5Hz
+    print("\n[2/3] Running vision loop (20 samples)...")
     try:
-        for i in range(10):
+        for i in range(20):
             ttr = vision.value()
             angle = vision.angle_deg
             status = vision.status
             left_ttr = vision.left_ttr
             right_ttr = vision.right_ttr
 
-            print(f"  Frame {i+1}: TTR={ttr:.3f} L={left_ttr:.3f} R={right_ttr:.3f} "
+            print(f"  [{i+1:2d}] TTR={ttr:.3f} L={left_ttr:.3f} R={right_ttr:.3f} "
                   f"angle={angle:+.1f}° status={status}")
-            time.sleep(0.05)
+            time.sleep(0.2)
 
         print("✓ Vision loop completed")
     except KeyboardInterrupt:
@@ -54,7 +52,7 @@ def main():
     print("✓ Shutdown complete")
 
     print("\n" + "=" * 70)
-    print("✅ Vision system test successful!")
+    print("Vision system test successful!")
     print("=" * 70)
 
 if __name__ == "__main__":

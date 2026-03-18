@@ -47,21 +47,22 @@ TRACK_STALE_SEC = 0.6
 
 # TTC proxy — identical to working script
 HIST_LEN = 12
-ALPHA_TTC = 0.12
+ALPHA_TTC = 0.25
 TTC_WARN = 3.0
 TTC_ALERT = 2.0
-CONSEC_ON = 7
+CONSEC_ON = 5
 CONSEC_OFF = 10
 
 # No center-gate for angled cameras (0.99 = accept full frame width)
 CENTER_X_GATE = 0.99
 
-# Geometry: per-camera bearing offset from straight-back
+# Geometry defaults: per-camera bearing offset from straight-back
 HFOV_DEG = 90.0
 CAM_L_OFFSET_DEG = -35.0  # left camera mount angle
 CAM_R_OFFSET_DEG = +35.0  # right camera mount angle
 
 PRINT_EVERY_SEC = 1.0
+RENDER_EVERY_N = 3  # only render/display every Nth frame when show=True
 
 
 @dataclass
@@ -71,6 +72,9 @@ class CameraResult:
     ttc_s: float      # best-threat TTC in seconds (99.0 = no threat)
     angle_deg: float  # bearing of best threat (0.0 = straight back)
     n_tracks: int     # total tracks seen across both cameras
+    approaching: bool  # True if best threat's bbox is growing (vehicle approaching)
+    best_h: float     # bbox height of best threat in pixels (proximity proxy)
+    best_dhdt: float  # avg bbox growth rate of best threat in px/s (speed proxy)
 
 
 def _moving_average(deq: deque) -> float:
@@ -102,6 +106,7 @@ class _CamState:
         self.hits_off = defaultdict(int)
         self.last_seen = defaultdict(lambda: 0.0)
         self.last_time = time.time()
+        self._seeded = set()  # tracks whose TTC has been seeded with a real value
 
     def prune_stale(self, now: float):
         for tid in list(self.last_seen):
@@ -109,11 +114,16 @@ class _CamState:
                 for d in (self.h_hist, self.dhdt_hist, self.ttc_smooth,
                           self.status, self.hits_on, self.hits_off, self.last_seen):
                     d.pop(tid, None)
+                self._seeded.discard(tid)
 
     def update(self, tracks: List[dict], now: float) -> Optional[dict]:
         """
         Update TTC and status for all tracks. Returns best (lowest TTC) threat,
         or None if no tracks.
+
+        IMPORTANT: Only call this on detection frames (when YOLO actually ran).
+        Calling on cached frames produces dhdt=0 (identical bboxes) which
+        dilutes the growth-rate history and breaks TTC estimation.
         """
         dt = max(now - self.last_time, 1e-6)
         self.last_time = now
@@ -136,7 +146,15 @@ class _CamState:
             h_avg = _moving_average(self.h_hist[tid])
 
             ttc = (h_avg / dhdt_avg) if dhdt_avg > 0.5 else 99.0
-            self.ttc_smooth[tid] = (1.0 - ALPHA_TTC) * self.ttc_smooth[tid] + ALPHA_TTC * ttc
+
+            # Seed smoothed TTC with first valid measurement instead of
+            # blending with the 99.0 default (which takes dozens of frames
+            # to converge and keeps TTR stuck at "calm").
+            if ttc < 99.0 and tid not in self._seeded:
+                self.ttc_smooth[tid] = ttc
+                self._seeded.add(tid)
+            else:
+                self.ttc_smooth[tid] = (1.0 - ALPHA_TTC) * self.ttc_smooth[tid] + ALPHA_TTC * ttc
 
             # Hysteresis state machine — identical to working script
             s = self.ttc_smooth[tid]
@@ -162,6 +180,9 @@ class _CamState:
                     "ttc": self.ttc_smooth[tid],
                     "status": self.status[tid],
                     "cx": t["cx"],
+                    "approaching": dhdt_avg > 0.5,
+                    "h_avg": h_avg,
+                    "dhdt_avg": dhdt_avg,
                 }
 
         return best
@@ -178,14 +199,20 @@ class CameraProvider:
         cam_left_index: int = 0,
         cam_right_index: int = 1,
         show: bool = False,
+        cam_l_offset_deg: float = CAM_L_OFFSET_DEG,
+        cam_r_offset_deg: float = CAM_R_OFFSET_DEG,
     ):
         """
         Args:
             cam_left_index: Pi camera index for left camera.
             cam_right_index: Pi camera index for right camera.
             show: If True, display cv2.imshow windows.
+            cam_l_offset_deg: Left camera mount angle from straight-back (negative = left).
+            cam_r_offset_deg: Right camera mount angle from straight-back (positive = right).
         """
         self.show = show
+        self._cam_l_offset = cam_l_offset_deg
+        self._cam_r_offset = cam_r_offset_deg
 
         available = Picamera2.global_camera_info()
         if len(available) < 2:
@@ -206,7 +233,11 @@ class CameraProvider:
             cam.configure(cam.create_video_configuration(**vid_cfg))
             cam.start()
 
-        self.model = YOLO(YOLO_MODEL_NAME)
+        # Keep independent tracker state per camera. Re-using one YOLO instance
+        # for both feeds can cause tracker IDs to be unstable or missing because
+        # state from the second call overwrites the first feed.
+        self.model_left = YOLO(YOLO_MODEL_NAME)
+        self.model_right = YOLO(YOLO_MODEL_NAME) if self._dual else self.model_left
 
         self._state_l = _CamState()
         self._state_r = _CamState()
@@ -214,6 +245,18 @@ class CameraProvider:
         self._frame_idx = 0
         self._cached_l = None
         self._cached_r = None
+
+        # Cached detection results (only updated on detection frames)
+        self._tracks_l: List[dict] = []
+        self._tracks_r: List[dict] = []
+        self._best_l: Optional[dict] = None
+        self._best_r: Optional[dict] = None
+        self._best: Optional[dict] = None
+        self._best_cam: Optional[str] = None
+        self._last_result = CameraResult(
+            status="NO_TARGET", ttc_s=99.0, angle_deg=0.0, n_tracks=0,
+            approaching=False, best_h=0.0, best_dhdt=0.0,
+        )
 
         self._fps_t0 = time.time()
         self._fps_count = 0
@@ -307,6 +350,9 @@ class CameraProvider:
     def read(self) -> CameraResult:
         """
         Capture, detect, update TTC/status, optionally render, return CameraResult.
+
+        State (TTC, status, tracks) is only updated on detection frames to avoid
+        feeding stale bbox data into the growth-rate history.
         """
         now = time.time()
 
@@ -315,45 +361,68 @@ class CameraProvider:
 
         H, W = frame_l.shape[:2]
 
-        # YOLO expects RGB — convert only for inference, display BGR as-is
-        rgb_l = cv2.cvtColor(frame_l, cv2.COLOR_BGR2RGB)
-        rgb_r = cv2.cvtColor(frame_r, cv2.COLOR_BGR2RGB)
-
         # Detection every N frames, cache between runs
         self._frame_idx += 1
         run_det = (self._frame_idx % DETECT_EVERY_N_FRAMES) == 0 or self._cached_l is None
 
         if run_det:
-            self._cached_l = self.model.track(
+            # BGR->RGB only on detection frames (YOLO needs RGB; display uses BGR)
+            rgb_l = cv2.cvtColor(frame_l, cv2.COLOR_BGR2RGB)
+            self._cached_l = self.model_left.track(
                 source=rgb_l, imgsz=IMG_SZ, conf=CONF_THRESH, iou=IOU_THRESH,
                 max_det=MAX_DETS, classes=VEHICLE_CLASS_IDS,
                 verbose=False, persist=True, tracker=TRACKER_CFG,
             )
-            self._cached_r = self.model.track(
-                source=rgb_r, imgsz=IMG_SZ, conf=CONF_THRESH, iou=IOU_THRESH,
-                max_det=MAX_DETS, classes=VEHICLE_CLASS_IDS,
-                verbose=False, persist=True, tracker=TRACKER_CFG,
-            )
+            if self._dual:
+                rgb_r = cv2.cvtColor(frame_r, cv2.COLOR_BGR2RGB)
+                self._cached_r = self.model_right.track(
+                    source=rgb_r, imgsz=IMG_SZ, conf=CONF_THRESH, iou=IOU_THRESH,
+                    max_det=MAX_DETS, classes=VEHICLE_CLASS_IDS,
+                    verbose=False, persist=True, tracker=TRACKER_CFG,
+                )
+            else:
+                # In single-camera fallback mode, mirror left results.
+                self._cached_r = self._cached_l
 
-        tracks_l = self._parse_tracks(self._cached_l, H, W)
-        tracks_r = self._parse_tracks(self._cached_r, H, W)
+            self._tracks_l = self._parse_tracks(self._cached_l, H, W)
+            self._tracks_r = self._parse_tracks(self._cached_r, H, W)
 
-        best_l = self._state_l.update(tracks_l, now)
-        best_r = self._state_r.update(tracks_r, now)
+            self._best_l = self._state_l.update(self._tracks_l, now)
+            self._best_r = self._state_r.update(self._tracks_r, now)
 
-        # Pick best threat across both cameras
-        if best_l is not None and best_r is not None:
-            best = best_l if best_l["ttc"] <= best_r["ttc"] else best_r
-            best_cam = "left" if best is best_l else "right"
-        elif best_l is not None:
-            best = best_l
-            best_cam = "left"
-        elif best_r is not None:
-            best = best_r
-            best_cam = "right"
-        else:
-            best = None
-            best_cam = None
+            # Pick best threat across both cameras
+            if self._best_l is not None and self._best_r is not None:
+                self._best = self._best_l if self._best_l["ttc"] <= self._best_r["ttc"] else self._best_r
+                self._best_cam = "left" if self._best is self._best_l else "right"
+            elif self._best_l is not None:
+                self._best = self._best_l
+                self._best_cam = "left"
+            elif self._best_r is not None:
+                self._best = self._best_r
+                self._best_cam = "right"
+            else:
+                self._best = None
+                self._best_cam = None
+
+            # Build result
+            if self._best is None:
+                self._last_result = CameraResult(
+                    status="NO_TARGET", ttc_s=99.0, angle_deg=0.0,
+                    n_tracks=0, approaching=False,
+                    best_h=0.0, best_dhdt=0.0,
+                )
+            else:
+                mount = self._cam_l_offset if self._best_cam == "left" else self._cam_r_offset
+                bearing = _bearing_deg(self._best["cx"], W, HFOV_DEG, mount)
+                self._last_result = CameraResult(
+                    status=self._best["status"],
+                    ttc_s=self._best["ttc"],
+                    angle_deg=bearing,
+                    n_tracks=len(self._tracks_l) + len(self._tracks_r),
+                    approaching=self._best.get("approaching", False),
+                    best_h=self._best.get("h_avg", 0.0),
+                    best_dhdt=self._best.get("dhdt_avg", 0.0),
+                )
 
         # FPS
         self._fps_count += 1
@@ -362,10 +431,10 @@ class CameraProvider:
             self._fps_t0 = now
             self._fps_count = 0
 
-        # Visualization
-        if self.show:
-            self._render(frame_l, tracks_l, self._state_l, CAM_L_OFFSET_DEG, best_l, "LEFT")
-            self._render(frame_r, tracks_r, self._state_r, CAM_R_OFFSET_DEG, best_r, "RIGHT")
+        # Visualization — render every Nth frame to reduce overhead
+        if self.show and (self._frame_idx % RENDER_EVERY_N == 0):
+            self._render(frame_l, self._tracks_l, self._state_l, self._cam_l_offset, self._best_l, "LEFT")
+            self._render(frame_r, self._tracks_r, self._state_r, self._cam_r_offset, self._best_r, "RIGHT")
             cv2.imshow("Left Camera", frame_l)
             cv2.imshow("Right Camera", frame_r)
             cv2.waitKey(1)
@@ -373,27 +442,14 @@ class CameraProvider:
         # Throttled console print
         if now - self._last_print >= PRINT_EVERY_SEC:
             self._last_print = now
-            n = len(tracks_l) + len(tracks_r)
-            if best:
-                mount = CAM_L_OFFSET_DEG if best_cam == "left" else CAM_R_OFFSET_DEG
-                bearing = _bearing_deg(best["cx"], W, HFOV_DEG, mount)
+            r = self._last_result
+            if r.status != "NO_TARGET":
                 print(f"[{time.strftime('%H:%M:%S')}] FPS~{self._fps_val:.1f} "
-                      f"tracks={n} status={best['status']} "
-                      f"TTC={best['ttc']:.1f}s angle={bearing:+.1f}°")
+                      f"tracks={r.n_tracks} status={r.status} "
+                      f"TTC={r.ttc_s:.1f}s angle={r.angle_deg:+.1f}° "
+                      f"h={r.best_h:.0f}px dhdt={r.best_dhdt:.1f}px/s")
             else:
                 print(f"[{time.strftime('%H:%M:%S')}] FPS~{self._fps_val:.1f} "
                       f"tracks=0 status=NO_TARGET")
 
-        # Build result
-        if best is None:
-            return CameraResult(status="NO_TARGET", ttc_s=99.0, angle_deg=0.0, n_tracks=0)
-
-        mount = CAM_L_OFFSET_DEG if best_cam == "left" else CAM_R_OFFSET_DEG
-        bearing = _bearing_deg(best["cx"], W, HFOV_DEG, mount)
-
-        return CameraResult(
-            status=best["status"],
-            ttc_s=best["ttc"],
-            angle_deg=bearing,
-            n_tracks=len(tracks_l) + len(tracks_r),
-        )
+        return self._last_result

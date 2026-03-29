@@ -372,9 +372,13 @@ class _LiveViz:
         # OpenCV wheels can set Qt plugin env vars (for cv2 HighGUI) that clash
         # with matplotlib's Qt backend in fusion mode.
         qt_env_keys = ("QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QPA_FONTDIR")
+        saved_qt_env = {k: os.environ.get(k) for k in qt_env_keys}
         for k in qt_env_keys:
             os.environ.pop(k, None)
         import matplotlib.pyplot as plt  # deferred — only imported when --show used
+        for k, v in saved_qt_env.items():
+            if v is not None:
+                os.environ[k] = v
         self._plt = plt
         plt.ion()
         self.fig, self.ax = plt.subplots()

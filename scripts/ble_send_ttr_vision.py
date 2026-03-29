@@ -61,6 +61,9 @@ class VisionTTRAdapter:
     def approaching(self) -> bool:
         return self.vision.approaching
 
+    def step_viz(self):
+        self.vision.step_viz()
+
     def stop(self):
         self.vision.stop()
 
@@ -159,9 +162,20 @@ async def run(args):
           f"w_prox={args.w_proximity} w_close={args.w_closing} | "
           f"{args.hz}Hz | show={args.show}")
 
+    async def _viz_loop():
+        while True:
+            source.step_viz()
+            await asyncio.sleep(0.05)
+
+    tasks = [asyncio.create_task(streamer.start())]
+    if args.show:
+        tasks.append(asyncio.create_task(_viz_loop()))
+
     try:
-        await streamer.start()
+        await asyncio.gather(*tasks)
     finally:
+        for t in tasks:
+            t.cancel()
         await asyncio.gather(*(c.disconnect() for c in clients.values()))
         source.stop()
         print("Disconnected.")

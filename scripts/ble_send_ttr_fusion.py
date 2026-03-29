@@ -76,6 +76,14 @@ class FusionTTRAdapter:
 
 
 async def run(args):
+    # Fusion with radar plot but without camera windows can still load cv2/Qt
+    # through the vision stack. Force Qt offscreen in this mode so cv2 never
+    # tries to bind the xcb platform plugin and crash the process.
+    if (args.radar_show or args.show) and not (args.cam_show or args.show):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH", None)
+        os.environ.pop("QT_QPA_FONTDIR", None)
+
     fusion_cfg = FusionTTRConfig(
         # Vision
         cam_left_index=args.cam_left,

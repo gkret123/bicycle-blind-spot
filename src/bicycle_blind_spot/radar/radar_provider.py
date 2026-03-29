@@ -369,18 +369,16 @@ class _LiveViz:
     """
 
     def __init__(self, xmax: float, ymin: float, ymax: float):
-        # Best effort order:
-        # 1) Prefer non-Qt backend (TkAgg) to avoid cv2/Qt conflicts entirely.
-        # 2) If TkAgg isn't available, clear cv2 Qt plugin env vars so a Qt
-        #    backend (if selected) uses system plugins instead of cv2's bundle.
-        import matplotlib
-        try:
-            matplotlib.use("TkAgg", force=True)
-        except Exception:
-            qt_env_keys = ("QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QPA_FONTDIR")
-            for k in qt_env_keys:
-                os.environ.pop(k, None)
+        # OpenCV wheels can set Qt plugin env vars (for cv2 HighGUI) that clash
+        # with matplotlib's Qt backend in fusion mode.
+        qt_env_keys = ("QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QPA_FONTDIR")
+        saved_qt_env = {k: os.environ.get(k) for k in qt_env_keys}
+        for k in qt_env_keys:
+            os.environ.pop(k, None)
         import matplotlib.pyplot as plt  # deferred — only imported when --show used
+        for k, v in saved_qt_env.items():
+            if v is not None:
+                os.environ[k] = v
         self._plt = plt
         plt.ion()
         self.fig, self.ax = plt.subplots()

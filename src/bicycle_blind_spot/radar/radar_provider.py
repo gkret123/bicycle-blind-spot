@@ -368,6 +368,14 @@ class _LiveViz:
     """
 
     def __init__(self, xmax: float, ymin: float, ymax: float):
+        # Force a non-Qt backend first to avoid Qt plugin conflicts with cv2
+        # in fusion mode (camera stack + radar matplotlib in same process).
+        import matplotlib
+        try:
+            matplotlib.use("TkAgg", force=True)
+        except Exception:
+            # Fallback keeps previous behavior if Tk isn't available.
+            pass
         import matplotlib.pyplot as plt  # deferred — only imported when --show used
         self._plt = plt
         plt.ion()

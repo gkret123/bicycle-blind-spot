@@ -17,6 +17,8 @@ center gate would filter it out entirely.
 from __future__ import annotations
 
 import time
+import threading
+import os
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
@@ -211,8 +213,27 @@ class CameraProvider:
             cam_r_offset_deg: Right camera mount angle from straight-back (positive = right).
         """
         self.show = show
+        self._viz_lock = threading.Lock()
+        self._viz_left = None
+        self._viz_right = None
         self._cam_l_offset = cam_l_offset_deg
         self._cam_r_offset = cam_r_offset_deg
+
+        # OpenCV HighGUI (Qt backend) requires a valid display server.
+        # In headless/SSH sessions, --show would otherwise crash with:
+        # "Could not load the Qt platform plugin 'xcb'..."
+        if self.show:
+            has_display = bool(
+                os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+            )
+            force_gui = os.environ.get("BBS_FORCE_GUI", "0") == "1"
+            if not has_display and not force_gui:
+                print(
+                    "[camera] --show requested but no DISPLAY/WAYLAND_DISPLAY found; "
+                    "disabling camera windows to avoid Qt/xcb crash. "
+                    "Set BBS_FORCE_GUI=1 to override."
+                )
+                self.show = False
 
         available = Picamera2.global_camera_info()
         if len(available) < 2:
@@ -267,6 +288,11 @@ class CameraProvider:
         for cam in ([self.cam_left, self.cam_right] if self._dual else [self.cam_left]):
             try:
                 cam.stop()
+            except Exception:
+                pass
+        if self.show:
+            try:
+                cv2.destroyAllWindows()
             except Exception:
                 pass
 
@@ -435,9 +461,9 @@ class CameraProvider:
         if self.show and (self._frame_idx % RENDER_EVERY_N == 0):
             self._render(frame_l, self._tracks_l, self._state_l, self._cam_l_offset, self._best_l, "LEFT")
             self._render(frame_r, self._tracks_r, self._state_r, self._cam_r_offset, self._best_r, "RIGHT")
-            cv2.imshow("Left Camera", frame_l)
-            cv2.imshow("Right Camera", frame_r)
-            cv2.waitKey(1)
+            with self._viz_lock:
+                self._viz_left = frame_l.copy()
+                self._viz_right = frame_r.copy()
 
         # Throttled console print
         if now - self._last_print >= PRINT_EVERY_SEC:
@@ -453,3 +479,22 @@ class CameraProvider:
                       f"tracks=0 status=NO_TARGET")
 
         return self._last_result
+
+    def step_viz(self):
+        """
+        Flush the latest camera visualization frames to OpenCV windows.
+        Call this from the main thread.
+        """
+        if not self.show:
+            return
+        with self._viz_lock:
+            left = self._viz_left
+            right = self._viz_right
+            self._viz_left = None
+            self._viz_right = None
+        if left is not None:
+            cv2.imshow("Left Camera", left)
+        if right is not None:
+            cv2.imshow("Right Camera", right)
+        if left is not None or right is not None:
+            cv2.waitKey(1)

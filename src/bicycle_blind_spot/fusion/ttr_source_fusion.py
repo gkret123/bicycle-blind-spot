@@ -93,6 +93,7 @@ class FusionTTRConfig:
     # Track association
     angle_gate_deg: float = 12.0
     max_time_delta_s: float = 0.3
+    fusion_strategy: str = "confidence_weighted"  # confidence_weighted | track_level
 
     # ---- Shared output config ----
     ttr_smooth_alpha: float = 0.15
@@ -236,31 +237,36 @@ class FusionTTRSource:
                     r_result = self._latest_radar
                     r_ts = self._radar_ts
 
-                # Build snapshots for the associator
-                v_snap = self._vision_snapshot(v_result, v_ts, now)
-                r_snap = self._radar_snapshot(r_result, r_ts, now)
+                if self.cfg.fusion_strategy == "track_level":
+                    # Build snapshots for the associator
+                    v_snap = self._vision_snapshot(v_result, v_ts, now)
+                    r_snap = self._radar_snapshot(r_result, r_ts, now)
 
-                # Track-level association
-                fused_tracks = self._associator.associate(r_snap, v_snap)
+                    # Track-level association
+                    fused_tracks = self._associator.associate(r_snap, v_snap)
 
-                if not fused_tracks:
-                    base_ttr = 1.0
-                    angle = 0.0
-                    approaching = False
-                    status = "NO_TARGET"
-                    fused_label = ""
-                else:
-                    # Pick the most urgent fused track
-                    best = self._select_best_fused(fused_tracks, v_result, r_result)
-                    base_ttr = self._compute_fused_ttr(best, v_result, r_result)
-                    angle = best.angle_deg
-                    approaching = best.approaching
-                    status = best.status
-                    fused_label = best.sensor_label
-
-                    # Gate: no vibration unless approaching
-                    if not approaching:
+                    if not fused_tracks:
                         base_ttr = 1.0
+                        angle = 0.0
+                        approaching = False
+                        status = "NO_TARGET"
+                        fused_label = ""
+                    else:
+                        # Pick the most urgent fused track
+                        best = self._select_best_fused(fused_tracks, v_result, r_result)
+                        base_ttr = self._compute_fused_ttr(best, v_result, r_result)
+                        angle = best.angle_deg
+                        approaching = best.approaching
+                        status = best.status
+                        fused_label = best.sensor_label
+
+                        # Gate: no vibration unless approaching
+                        if not approaching:
+                            base_ttr = 1.0
+                else:
+                    base_ttr, angle, approaching, status, fused_label = (
+                        self._confidence_weighted_fusion(v_result, r_result)
+                    )
 
                 # Zone-based angle split
                 raw_left, raw_right = self._compute_side_split(base_ttr, angle)
@@ -417,6 +423,57 @@ class FusionTTRSource:
 
         w_v = 1.0 - w_r
         return w_r, w_v
+
+    def _confidence_weighted_fusion(
+        self,
+        v_result: Optional[CameraResult],
+        r_result: Optional[RadarResult],
+    ) -> tuple[float, float, bool, str, str]:
+        """
+        Fusion without hard association.
+
+        This is the recommended starting point: blend per-sensor urgency
+        using adaptive weights and confidence scores.
+        """
+        have_v = (
+            v_result is not None
+            and v_result.status != "NO_TARGET"
+            and v_result.approaching
+            and v_result.best_h > 0.0
+        )
+        have_r = (
+            r_result is not None
+            and r_result.status != "NO_TARGET"
+            and r_result.approaching
+            and r_result.range_m > 0.0
+        )
+
+        if not have_v and not have_r:
+            return 1.0, 0.0, False, "NO_TARGET", ""
+
+        v_urg = self._vision_urgency(v_result.best_h, v_result.best_dhdt) if have_v else 0.0
+        r_urg = self._radar_urgency(r_result.range_m, r_result.closing_mps) if have_r else 0.0
+
+        if have_v and not have_r:
+            return 1.0 - clamp01(v_urg), v_result.angle_deg, True, v_result.status, "VISION"
+        if have_r and not have_v:
+            return 1.0 - clamp01(r_urg), r_result.angle_deg, True, r_result.status, "RADAR"
+
+        # Both sensors are active: adaptive weight by range + confidence
+        w_r, w_v = self._dynamic_weights(r_result.range_m, 0.5)
+        radar_conf = clamp01(min(1.0, r_result.n_tracks / 8.0))
+        vision_conf = clamp01(0.4 + min(0.6, v_result.best_dhdt / max(self.cfg.dhdt_max, 1.0)))
+        w_r *= radar_conf
+        w_v *= vision_conf
+        denom = max(1e-6, w_r + w_v)
+        w_r /= denom
+        w_v /= denom
+
+        fused_urg = clamp01(w_r * r_urg + w_v * v_urg)
+        angle = (w_r * r_result.angle_deg + w_v * v_result.angle_deg)
+
+        status = "ALERT" if ("ALERT" in (v_result.status, r_result.status)) else "WARN"
+        return 1.0 - fused_urg, angle, True, status, "FUSED-CW"
 
     def _radar_urgency(self, range_m: float, closing_mps: float) -> float:
         """Radar urgency: proximity (inverted range) + closing speed."""

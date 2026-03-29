@@ -253,3 +253,7 @@ class VisionTTRSource:
         if self._thread is not None:
             self._thread.join(timeout=2.0)
         self.provider.stop()
+
+    def step_viz(self):
+        """Flush visualization windows from the main thread."""
+        self.provider.step_viz()

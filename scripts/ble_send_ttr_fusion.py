@@ -103,6 +103,7 @@ async def run(args):
         far_range_m=args.far_range,
         angle_gate_deg=args.angle_gate,
         max_time_delta_s=args.max_time_delta,
+        fusion_strategy=args.fusion_strategy,
         # Shared
         ttr_smooth_alpha=args.ttr_smooth,
         both_zone_deg=args.both_zone,
@@ -179,6 +180,7 @@ async def run(args):
     )
 
     print(f"Streaming FUSION | "
+          f"mode={args.fusion_strategy} | "
           f"near={args.near_range}m far={args.far_range}m | "
           f"angle_gate={args.angle_gate} | "
           f"both_zone={args.both_zone} | "
@@ -254,6 +256,13 @@ def parse_args():
                         help="Max bearing diff (deg) to associate radar+vision tracks (default: 12)")
     fusion.add_argument("--max-time-delta", type=float, default=0.3,
                         help="Max time gap (s) between sensor readings for association (default: 0.3)")
+    fusion.add_argument(
+        "--fusion-strategy",
+        default="confidence_weighted",
+        choices=["confidence_weighted", "track_level"],
+        help="Fusion strategy: confidence_weighted (recommended start) "
+             "or track_level (most robust association)."
+    )
 
     # ---- Urgency tuning (shared) ----
     urgency = p.add_argument_group("urgency tuning")

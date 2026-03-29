@@ -27,6 +27,7 @@ from __future__ import annotations
 import queue
 import struct
 import time
+import os
 from collections import deque
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
@@ -368,15 +369,16 @@ class _LiveViz:
     """
 
     def __init__(self, xmax: float, ymin: float, ymax: float):
-        # Force a non-Qt backend first to avoid Qt plugin conflicts with cv2
-        # in fusion mode (camera stack + radar matplotlib in same process).
-        import matplotlib
-        try:
-            matplotlib.use("TkAgg", force=True)
-        except Exception:
-            # Fallback keeps previous behavior if Tk isn't available.
-            pass
+        # OpenCV wheels can set Qt plugin env vars (for cv2 HighGUI) that clash
+        # with matplotlib's Qt backend in fusion mode.
+        qt_env_keys = ("QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QPA_FONTDIR")
+        saved_qt_env = {k: os.environ.get(k) for k in qt_env_keys}
+        for k in qt_env_keys:
+            os.environ.pop(k, None)
         import matplotlib.pyplot as plt  # deferred — only imported when --show used
+        for k, v in saved_qt_env.items():
+            if v is not None:
+                os.environ[k] = v
         self._plt = plt
         plt.ion()
         self.fig, self.ax = plt.subplots()

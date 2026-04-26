@@ -224,8 +224,10 @@ def parse_args():
 
     # ---- Radar ----
     radar = p.add_argument_group("radar")
-    radar.add_argument("--cfg-port",   default="/dev/ttyUSB0")
-    radar.add_argument("--data-port",  default="/dev/ttyUSB1")
+    radar.add_argument("--cfg-port",   default="auto",
+                       help="Radar CLI port (default: auto-detect FTDI adapter)")
+    radar.add_argument("--data-port",  default="auto",
+                       help="Radar data port (default: auto-detect FTDI adapter)")
     radar.add_argument("--range-preset", default="long", choices=["standard", "long"])
     radar.add_argument("--approaching-sign", type=int, default=1, choices=[-1, 1])
     radar.add_argument("--radar-show", action="store_true",

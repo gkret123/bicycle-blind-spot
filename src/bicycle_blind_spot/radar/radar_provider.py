@@ -489,14 +489,54 @@ def _send_cmd(ser: serial.Serial, cmd: str, timeout_s: float) -> bool:
 
 
 # ------------------------------------------------------------------ #
+# FTDI auto-detection
+# ------------------------------------------------------------------ #
+
+_FTDI_VID_PID = "0403:6010"  # FTDI FT2232 dual-port adapter
+
+
+def detect_radar_ports() -> tuple[str, str]:
+    """
+    Auto-detect the FTDI dual-port radar adapter.
+
+    Returns (cfg_port, data_port).  The FTDI FT2232 exposes two serial
+    interfaces; interface 0 is the CLI/config port, interface 1 is the
+    high-speed data port.  The ttyUSB numbers can shuffle on every USB
+    re-enumeration, so we resolve them fresh each time.
+
+    Falls back to /dev/ttyUSB0, /dev/ttyUSB1 if detection fails.
+    """
+    from serial.tools.list_ports import comports
+
+    # Collect all ports belonging to the FTDI dual-port adapter,
+    # keyed by their USB interface number (0 = cfg, 1 = data).
+    ports: dict[int, str] = {}
+    for p in comports():
+        if p.vid == 0x0403 and p.pid == 0x6010 and p.location:
+            # location looks like "1-2:1.0" — trailing digit is interface number
+            try:
+                iface = int(p.location.rsplit(".", 1)[-1])
+                ports[iface] = p.device
+            except (ValueError, IndexError):
+                continue
+
+    if 0 in ports and 1 in ports:
+        print(f"[radar] Auto-detected cfg={ports[0]}  data={ports[1]}")
+        return ports[0], ports[1]
+
+    print("[radar] FTDI auto-detect failed, falling back to /dev/ttyUSB0 + /dev/ttyUSB1")
+    return "/dev/ttyUSB0", "/dev/ttyUSB1"
+
+
+# ------------------------------------------------------------------ #
 # Provider
 # ------------------------------------------------------------------ #
 
 @dataclass
 class RadarConfig:
     """All tunables for the radar pipeline."""
-    cfg_port: str = "/dev/ttyUSB0"
-    data_port: str = "/dev/ttyUSB1"
+    cfg_port: str = "auto"
+    data_port: str = "auto"
     range_preset: str = "long"            # "standard" (~27 m) or "long" (~90 m)
 
     # ROI
@@ -537,6 +577,7 @@ class RadarProvider:
 
     def __init__(self, cfg: Optional[RadarConfig] = None):
         self.cfg = cfg or RadarConfig()
+        self._auto = self.cfg.cfg_port == "auto" or self.cfg.data_port == "auto"
 
         self._tracker = _MultiTracker(
             dt=0.10,
@@ -557,8 +598,17 @@ class RadarProvider:
             queue.Queue(maxsize=2) if self.cfg.show else None
         )
 
+    def _resolve_ports(self):
+        """Resolve 'auto' port values, always re-detecting (ports can shift
+        after USB re-enumeration triggered by sensorStart)."""
+        if self._auto:
+            cfg_port, data_port = detect_radar_ports()
+            self.cfg.cfg_port = cfg_port
+            self.cfg.data_port = data_port
+
     def configure(self):
         """Send config commands to sensor CLI port."""
+        self._resolve_ports()
         cmds = RANGE_PRESETS.get(self.cfg.range_preset, CMDS_LONG_RANGE)
         port = self.cfg.cfg_port
 
@@ -577,9 +627,41 @@ class RadarProvider:
 
     def start_data(self):
         """Open the data serial port."""
+        # sensorStart can trigger a USB re-enumeration, shifting ttyUSB
+        # numbers.  Wait briefly for the device to settle, then re-detect.
+        if self._auto:
+            time.sleep(0.6)
+            self._resolve_ports()
         self._ser = serial.Serial(self.cfg.data_port, 921600, timeout=0.05)
         self._buf.clear()
         self._t_last = time.time()
+
+    def reconnect_data(self):
+        """
+        Re-open the data port after a USB re-enumeration (EMI glitch).
+
+        The radar sensor keeps running — only the USB serial link dropped.
+        Close the dead handle, wait for the kernel to re-enumerate the FTDI
+        device, re-detect the port number, and re-open.
+        """
+        if self._ser:
+            try:
+                self._ser.close()
+            except Exception:
+                pass
+            self._ser = None
+
+        # Wait for USB to settle after re-enumeration (~500ms from dmesg)
+        time.sleep(1.0)
+
+        if self._auto:
+            self._resolve_ports()
+
+        print(f"[radar] Reconnecting data port: {self.cfg.data_port}")
+        self._ser = serial.Serial(self.cfg.data_port, 921600, timeout=0.05)
+        self._buf.clear()
+        self._t_last = time.time()
+        print(f"[radar] Data port reconnected.")
 
     def stop(self):
         if self._ser and self._ser.is_open:

@@ -37,6 +37,8 @@ import traceback
 from dataclasses import dataclass
 from typing import Optional
 
+import serial
+
 from bicycle_blind_spot.radar.radar_provider import RadarProvider, RadarConfig
 from bicycle_blind_spot.utils.math_utils import clamp01
 
@@ -69,8 +71,8 @@ class RadarTTRConfig:
     both_zone_deg: float = 10.0
 
     # ---- Radar hardware config ----
-    cfg_port: str = "/dev/ttyUSB0"
-    data_port: str = "/dev/ttyUSB1"
+    cfg_port: str = "auto"
+    data_port: str = "auto"
     range_preset: str = "long"
     approaching_sign: int = 1     # +1 or -1, calibrate on first test
 
@@ -163,6 +165,13 @@ class RadarTTRSource:
                     self._left_ttr = self._smooth_left
                     self._right_ttr = self._smooth_right
                     self._approaching = approaching
+            except serial.SerialException:
+                print("[radar] Serial disconnect (EMI?) — reconnecting…")
+                try:
+                    self.provider.reconnect_data()
+                except Exception:
+                    traceback.print_exc()
+                    import time; time.sleep(2.0)
             except Exception:
                 traceback.print_exc()
 

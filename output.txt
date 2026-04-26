@@ -1,0 +1,3 @@
+Connecting to BBSpot-XIAO-L and BBSpot-XIAO-R...
+
+Shutdown.

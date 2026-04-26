@@ -194,10 +194,10 @@ def parse_args():
     )
 
     # Radar hardware
-    p.add_argument("--cfg-port",   default="/dev/ttyUSB0",
-                   help="Radar CLI/config serial port (default: /dev/ttyUSB0)")
-    p.add_argument("--data-port",  default="/dev/ttyUSB1",
-                   help="Radar data serial port (default: /dev/ttyUSB1)")
+    p.add_argument("--cfg-port",   default="auto",
+                   help="Radar CLI/config serial port (default: auto-detect FTDI adapter)")
+    p.add_argument("--data-port",  default="auto",
+                   help="Radar data serial port (default: auto-detect FTDI adapter)")
     p.add_argument("--range-preset", default="long", choices=["standard", "long"],
                    help="Radar range preset: 'standard' (~27m) or 'long' (~90m, default)")
     p.add_argument("--approaching-sign", type=int, default=1, choices=[-1, 1],

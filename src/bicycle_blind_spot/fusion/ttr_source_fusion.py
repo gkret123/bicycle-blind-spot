@@ -39,6 +39,8 @@ import traceback
 from dataclasses import dataclass
 from typing import Optional
 
+import serial
+
 from bicycle_blind_spot.vision.camera_provider import CameraProvider, CameraResult, FRAME_H
 from bicycle_blind_spot.vision.ttr_source_vision import VisionTTRConfig
 from bicycle_blind_spot.radar.radar_provider import RadarProvider, RadarConfig, RadarResult
@@ -67,8 +69,8 @@ class FusionTTRConfig:
     min_approach_dhdt: float = 0.5
 
     # ---- Radar sub-config ----
-    cfg_port: str = "/dev/ttyUSB0"
-    data_port: str = "/dev/ttyUSB1"
+    cfg_port: str = "auto"
+    data_port: str = "auto"
     range_preset: str = "long"
     approaching_sign: int = 1
     radar_show: bool = False
@@ -215,6 +217,13 @@ class FusionTTRSource:
                 with self._radar_lock:
                     self._latest_radar = result
                     self._radar_ts = time.time()
+            except serial.SerialException:
+                print("[radar] Serial disconnect (EMI?) — reconnecting…")
+                try:
+                    self._radar_provider.reconnect_data()
+                except Exception:
+                    traceback.print_exc()
+                    time.sleep(2.0)
             except Exception:
                 traceback.print_exc()
 

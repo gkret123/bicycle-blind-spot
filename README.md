@@ -107,7 +107,14 @@ Install:
 sudo scripts/pi/install_autostart.sh
 ```
 
-Update the services as needed for vision/fusion (for example, change the ExecStart command).
+To use vision/fusion, edit the installed service (for example,
+`/etc/systemd/system/bicycle-blind-spot.service`, based on
+`scripts/pi/systemd/bicycle-blind-spot.service`) and replace `ExecStart` with
+the command you want to run. Example:
+```ini
+ExecStart=/home/pi/bicycle-blind-spot/scripts/pi/run_bbs.sh
+```
+Then reload and restart systemd.
 
 ## More documentation
 

@@ -1,20 +1,32 @@
-# bicycle-blind-spot
+# Bicycle Blind Spot
 
-Python tooling for a bicycle blind-spot prototype that streams a normalized **TTR** (time-to-react) value to one or more BLE devices.
+Python tooling for a bicycle blind-spot prototype that computes a **TTR** (time-to-react) signal from radar, dual-camera vision, or fused sensors and streams left/right haptic intensity over BLE.
 
-## What this repo contains
+## System modes
 
-- `src/ble_client.py`: BLE client with auto-reconnect and optional notification handling.
-- `src/ttr_source.py`: a placeholder TTR source (`TTRRamp`) that ramps from `1.0` down to `0.0`.
-- `src/ttr_streamer.py`: pushes TTR updates to connected devices at a fixed rate.
-- `src/metrics.py`: stream/reconnect metrics for terminal output.
-- `scripts/ble_send_ttr.py`: CLI script that wires everything together.
+- **Vision (dual-camera + YOLO)** — `scripts/ble_send_ttr_vision.py`
+- **Radar (TI mmWave)** — `scripts/ble_send_ttr_radar.py`
+- **Fusion (radar + vision)** — `scripts/ble_send_ttr_fusion.py`
+- **Synthetic ramp demo** — `scripts/ble_send_ttr.py`
+
+## Repository layout
+
+- `src/bicycle_blind_spot/ble/` — BLE client + streaming loop
+- `src/bicycle_blind_spot/vision/` — dual-camera YOLO tracking + TTR source
+- `src/bicycle_blind_spot/radar/` — mmWave parsing + TTR source
+- `src/bicycle_blind_spot/fusion/` — radar/vision association + blending
+- `scripts/` — CLI entry points for each mode
+- `scripts/pi/` — Raspberry Pi systemd helpers + shutdown switch
+- `QUICKSTART_VISION.md`, `VISION_SETUP.md` — camera mounting + calibration
+- `tests/` — experimental scripts and data collection helpers
 
 ## Requirements
 
-- Python 3.11+
-- A BLE-capable host (e.g., Raspberry Pi)
-- Target BLE device(s) advertising names expected by the script (default: `BBSpot-XIAO`)
+- Python **3.11+**
+- BLE-capable Linux host (Raspberry Pi recommended)
+- Two BLE haptic devices (defaults: `BBSpot-XIAO-L` and `BBSpot-XIAO-R`)
+- **Vision mode:** two Raspberry Pi cameras + `yolov8n.pt` (included)
+- **Radar mode:** TI mmWave radar + serial/FTDI adapter
 
 ## Install
 
@@ -23,10 +35,9 @@ Python tooling for a bicycle blind-spot prototype that streams a normalized **TT
 sudo apt update
 sudo xargs -a apt-requirements.txt apt install -y
 ```
-> **Disclaimer:** `apt-requirements.txt` was generated from a development machine using `apt-mark showmanual`. Package availability and exact names may vary across Debian/Ubuntu/Raspberry Pi OS versions, so you may need to adjust the list for your specific system.
+> **Note:** `apt-requirements.txt` was generated on a dev machine. Package names may vary across OS versions.
 
-
-Then set up the Python environment:
+Create a virtual environment and install the package:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -34,103 +45,75 @@ pip install -U pip
 pip install -e .
 ```
 
-If you need all pinned dependencies used during development, you can also install:
+If you need the full pinned development stack:
 ```bash
 pip install -r requirements.txt
 ```
 
 ## Run
 
-Start the TTR streamer:
-
+### Vision (dual-camera)
 ```bash
-python scripts/ble_send_ttr.py --device-names "BBSpot-XIAO"
+# Headless (default)
+python scripts/ble_send_ttr_vision.py
+
+# With camera windows
+python scripts/ble_send_ttr_vision.py --show
 ```
 
-Common options:
+Helpful options:
+- `--cam-left`, `--cam-right` — camera indices
+- `--cam-angle` — mount angle from straight-back (deg)
+- `--both-zone` — angle zone where both sides vibrate
+- `--w-proximity`, `--w-closing` — urgency weighting
 
-- `--hz 20` update frequency
-- `--ramp-s 45` ramp duration in seconds
-- `--stop-at-end` stop once TTR reaches `0.0`
-- `--notify` print BLE notifications from TX characteristic
-
-Example with two targets:
-
+### Radar (TI mmWave)
 ```bash
-python scripts/ble_send_ttr.py --device-names "BBSpot-XIAO-L,BBSpot-XIAO-R" --hz 25 --notify
-```
-## Raspberry Pi auto-start + graceful shutdown switch
+python scripts/ble_send_ttr_radar.py --range-preset long
 
-This repository includes helper scripts for running the software at boot and shutting down cleanly when a physical switch is toggled OFF.
-
-### Files
-
-- `scripts/pi/run_bbs.sh`: wrapper that launches `scripts/ble_send_ttr.py` from `.venv`.
-- `scripts/pi/power_switch_shutdown.py`: watches a GPIO pin and, when triggered, stops the main service then calls `shutdown -h now`.
-- `scripts/pi/install_autostart.sh`: installs and enables both systemd services.
-- `scripts/pi/systemd/bicycle-blind-spot.service`: boot service for the app.
-- `scripts/pi/systemd/bicycle-power-switch.service`: boot service for the GPIO shutdown monitor.
-
-### 1) Prepare your Pi environment
-
-From the repository root:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -e .
+# Show live radar scatter plot
+python scripts/ble_send_ttr_radar.py --show
 ```
 
-Install Raspberry Pi GPIO support if needed:
-
+### Fusion (radar + vision)
 ```bash
-sudo apt update
-sudo apt install -y python3-gpiozero
+# Headless (default)
+python scripts/ble_send_ttr_fusion.py
+
+# Enable camera + radar visualizations
+python scripts/ble_send_ttr_fusion.py --show
 ```
 
-### 2) Install startup services
+### Synthetic ramp demo
+```bash
+python scripts/ble_send_ttr.py --ramp-s 45 --hold-s 10
+```
 
+### Vision-only test (no BLE required)
+```bash
+python scripts/test_vision_only.py
+```
+
+## Raspberry Pi autostart + shutdown switch
+
+This repo includes systemd helpers for running the default BLE ramp streamer at boot and shutting down cleanly when a GPIO switch is toggled.
+
+- `scripts/pi/run_bbs.sh` — boot wrapper that activates `.venv` and runs `ble_send_ttr.py`
+- `scripts/pi/power_switch_shutdown.py` — GPIO monitor that stops the service, then powers off
+- `scripts/pi/install_autostart.sh` — installs both systemd services
+
+Install:
 ```bash
 sudo scripts/pi/install_autostart.sh
 ```
 
-This installs and enables:
+Update the services as needed for vision/fusion (for example, change the ExecStart command).
 
-- `bicycle-blind-spot.service` (main app at boot)
-- `bicycle-power-switch.service` (GPIO switch monitor at boot)
+## More documentation
 
-### 3) Configure the shutdown switch pin
+- **QUICKSTART_VISION.md** — getting the dual-camera pipeline running quickly
+- **VISION_SETUP.md** — detailed mounting, calibration, and troubleshooting
 
-By default, the monitor uses BCM pin `17` and `--active-state low` (typical pull-up wiring where OFF pulls pin to GND).
+## License
 
-If your wiring differs, edit:
-
-- `scripts/pi/systemd/bicycle-power-switch.service`
-
-Then reload and restart:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart bicycle-power-switch.service
-```
-
-### 4) Verify
-
-```bash
-systemctl status bicycle-blind-spot.service
-systemctl status bicycle-power-switch.service
-journalctl -u bicycle-power-switch.service -f
-```
-
-When the OFF switch is triggered, the monitor will:
-
-1. `systemctl stop bicycle-blind-spot.service`
-2. `shutdown -h now`
-
-The app service uses `KillSignal=SIGINT` and a stop timeout so Python can run its disconnect logic before poweroff.
-
-## Notes
-
-- Current TTR generation is a synthetic ramp for integration testing.
-- UUIDs and BLE defaults live in `src/constants.py` and should match firmware.
+See the repository for license details.

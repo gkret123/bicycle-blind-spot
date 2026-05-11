@@ -35,7 +35,9 @@ Python tooling for a bicycle blind-spot prototype that computes a **TTR** (time-
 sudo apt update
 sudo xargs -a apt-requirements.txt apt install -y
 ```
-> **Note:** `apt-requirements.txt` was generated on a dev machine. Package names may vary across OS versions.
+> **Note:** `apt-requirements.txt` was generated on a dev machine using
+> `apt-mark showmanual`. Package names may vary across OS versions, so you may
+> need to adjust the list.
 
 Create a virtual environment and install the package:
 ```bash
@@ -110,9 +112,10 @@ sudo scripts/pi/install_autostart.sh
 To use vision/fusion, edit the installed service (for example,
 `/etc/systemd/system/bicycle-blind-spot.service`, based on
 `scripts/pi/systemd/bicycle-blind-spot.service`) and replace `ExecStart` with
-the command you want to run. Example:
+the command you want to run. Example for vision:
 ```ini
-ExecStart=/home/pi/bicycle-blind-spot/scripts/pi/run_bbs.sh
+ExecStart=/home/pi/bicycle-blind-spot/.venv/bin/python \
+  /home/pi/bicycle-blind-spot/scripts/ble_send_ttr_vision.py
 ```
 Then reload and restart systemd.
 
